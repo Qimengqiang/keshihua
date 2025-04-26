@@ -1,0 +1,19 @@
+<!-- 移除绘图相关按钮和脚本 -->
+<script>
+// 只保留数据加载功能
+function loadParkingAreas() {
+    fetch('/api/parking-areas/')
+        .then(response => response.json())
+        .then(data => {
+            data.areas.forEach(area => {
+                const points = area.coordinates.map(c => new BMap.Point(c.lng, c.lat));
+                new BMap.Polygon(points, {
+                    strokeColor: "#009933",
+                    fillColor: "#99FF66",
+                    fillOpacity: 0.4
+                });
+                map.addOverlay(polygon);
+            });
+        });
+}
+</script>

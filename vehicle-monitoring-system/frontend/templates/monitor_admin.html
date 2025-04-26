@@ -1,0 +1,45 @@
+<!-- 保留原有绘图功能，在脚本最后添加 -->
+<script>
+// 保存数据到后端
+function saveParkingArea() {
+    const areaData = {
+        name: `区域${parkingAreas.length + 1}`,
+        coordinates: parkingAreas[0].getPath().map(p => ({ 
+            lng: p.lng, 
+            lat: p.lat 
+        }))
+    };
+    
+    fetch('/api/parking-areas/', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': '{{ csrf_token }}'
+        },
+        body: JSON.stringify(areaData)
+    }).then(response => {
+        if(response.ok) alert('保存成功！');
+    });
+}
+
+// 加载已有区域
+function loadParkingAreas() {
+    fetch('/api/parking-areas/')
+        .then(response => response.json())
+        .then(data => {
+            data.areas.forEach(area => {
+                const points = area.coordinates.map(c => new BMap.Point(c.lng, c.lat));
+                const polygon = new BMap.Polygon(points, {
+                    strokeColor: "#009933",
+                    fillColor: "#99FF66",
+                    fillOpacity: 0.4
+                });
+                map.addOverlay(polygon);
+                parkingAreas.push(polygon);
+            });
+        });
+}
+
+// 初始化时加载数据
+window.onload = loadParkingAreas;
+</script>

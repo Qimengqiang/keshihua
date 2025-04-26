@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Vehicle Monitoring</title>
+    <style>
+        .drawing-toolbar {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            z-index: 1000;
+            background: white;
+            padding: 10px;
+            border-radius: 5px;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+        }
+        .tool-btn {
+            margin: 0 5px;
+            padding: 6px 12px;
+            border: 1px solid #1890ff;
+            border-radius: 4px;
+            background: white;
+            cursor: pointer;
+        }
+        .tool-btn:hover {
+            background: #1890ff;
+            color: white;
+        }
+    </style>
+</head>
+<body>
+    <div class="drawing-toolbar">
+        {% if user.is_staff %}
+        <button class="tool-btn" onclick="toggleDrawingMode('polygon')">绘制多边形</button>
+        <button class="tool-btn" onclick="toggleDrawingMode('rectangle')">绘制矩形</button>
+        <label class="tool-btn">
+            <input type="checkbox" id="public-toggle"> 公开区域
+        </label>
+        {% endif %}
+        <button class="tool-btn" onclick="loadParkingAreas()">刷新区域</button>
+        <button class="tool-btn" onclick="clearTemporaryOverlays()">清除临时图形</button>
+    </div>
+    <div id="map-container" style="height: 600px; width: 100%"></div>
+
+    <script src="https://api.map.baidu.com/api?v=3.0&ak=WZlZucm2DiAsgPzCQ91iBnJASONqSpaT"></script>
+    
+    <script>
+    // 初始化地图
+    const map = new BMap.Map("map-container");
+    map.centerAndZoom(new BMap.Point(113.191152, 33.779505), 20);
+    map.enableScrollWheelZoom(true);
+
+    // 绘图管理器
+    let drawingManager = null;
+    let currentOverlay = null;
+    
+    {% if user.is_staff %}
+    // 初始化绘图工具
+    drawingManager = new BMap.DrawingManager(map, {
+        enableDrawingTool: true,
+        drawingToolOptions: {
+            anchor: BMAP_ANCHOR_TOP_RIGHT,
+            offset: new BMap.Size(5, 5)
+        },
+        polygonOptions: {
+            strokeColor: "#1890ff",
+            fillColor: "#1890ff40",
+            strokeWeight: 2
+        },
+        rectangleOptions: {
+            strokeColor: "#52c41a",
+            fillColor: "#52c41a40",
+            strokeWeight: 2
+        }
+    });
+
+    // 绘图完成事件
+    drawingManager.addEventListener('overlaycomplete', function(e) {
+        currentOverlay = e.overlay;
+        handleDrawingComplete(e);
+    });
+    {% endif %}
+
+    // 处理绘图完成
+    async function handleDrawingComplete(e) {
+        const coordinates = getShapeCoordinates(e);
+        
+        if (!validateCoordinates(coordinates)) {
+            map.removeOverlay(currentOverlay);
+            return;
+        }
+
+        const confirmSave = confirm('是否保存当前区域？');
+        if (confirmSave) {
+            await saveParkingArea(coordinates);
+            loadParkingAreas();
+        } else {
+            map.removeOverlay(currentOverlay);
+        }
+    }
+
+    // 获取坐标数据
+    function getShapeCoordinates(e) {
+        if (e.drawingMode === 'polygon') {
+            return e.overlay.getPath().map(p => [p.lng, p.lat]);
+        }
+        if (e.drawingMode === 'rectangle') {
+            const bounds = e.overlay.getBounds();
+            return [
+                [bounds.sw.lng, bounds.sw.lat],
+                [bounds.ne.lng, bounds.ne.lat]
+            ];
+        }
+        return [];
+    }
+
+    // 坐标验证
+    function validateCoordinates(coords) {
+        if (coords.length < 3 && !Array.isArray(coords[0])) {
+            alert('至少需要3个点来定义区域');
+            return false;
+        }
+        return true;
+    }
+
+    // 保存区域
+    async function saveParkingArea(coordinates) {
+        const name = prompt('请输入区域名称：');
+        if (!name) return;
+
+        try {
+            const response = await fetch('/save-parking-area/', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': '{{ csrf_token }}'
+                },
+                body: JSON.stringify({
+                    name: name,
+                    coordinates: coordinates,
+                    is_public: document.getElementById('public-toggle').checked
+                })
+            });
+
+            const result = await response.json();
+            if (!response.ok) throw new Error(result.message);
+            alert(`保存成功！ID: ${result.id}`);
+        } catch (error) {
+            console.error('保存失败:', error);
+            alert('保存失败: ' + error.message);
+        }
+    }
+
+    // 加载区域
+    function loadParkingAreas() {
+        fetch('/parking-areas/')
+            .then(response => response.json())
+            .then(data => {
+                map.clearOverlays();
+                data.areas.forEach(area => {
+                    const style = {
+                        strokeColor: area.is_public ? "#1890ff" : "#ff4d4f",
+                        fillColor: area.is_public ? "#1890ff40" : "#ff4d4f40",
+                        strokeWeight: 2
+                    };
+                    
+                    if (area.coordinates.length === 2) { // 矩形
+                        const sw = new BMap.Point(area.coordinates[0][0], area.coordinates[0][1]);
+                        const ne = new BMap.Point(area.coordinates[1][0], area.coordinates[1][1]);
+                        const overlay = new BMap.Polygon([
+                            sw, 
+                            new BMap.Point(ne.lng, sw.lat), 
+                            ne, 
+                            new BMap.Point(sw.lng, ne.lat)
+                        ], style);
+                        map.addOverlay(overlay);
+                    } else { // 多边形
+                        const overlay = new BMap.Polygon(
+                            area.coordinates.map(p => new BMap.Point(p[0], p[1])),
+                            style
+                        );
+                        map.addOverlay(overlay);
+                    }
+                });
+            });
+    }
+
+    // 清除临时图形
+    function clearTemporaryOverlays() {
+        map.clearOverlays();
+        loadParkingAreas();
+    }
+
+    // 初始化加载
+    loadParkingAreas();
+    setInterval(loadParkingAreas, 60000);
+    </script>
+</body>
+</html>
