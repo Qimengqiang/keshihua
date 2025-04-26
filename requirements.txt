@@ -1,8 +1,0 @@
-django>=4.0
-mysql-connector-python
-paddleocr>=2.6
-torch>=1.10
-ultralytics
-scikit-learn
-numpy
-opencv-python
